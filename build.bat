@@ -4,13 +4,18 @@ echo ========================================
 echo   Auto-Paster EXE Builder
 echo ========================================
 echo.
-echo [1/2] Updating dependencies...
+echo [1/3] Cleaning up old builds...
+if exist build rd /s /q build
+if exist dist rd /s /q dist
+
+echo.
+echo [2/3] Updating dependencies...
 pip install pyinstaller pyperclip uiautomation keyboard --quiet
 
 echo.
-echo [2/2] Building executable...
+echo [3/3] Building executable...
 echo (This may take a minute or two)
-pyinstaller --noconsole --onefile --name "auto-paster" auto_paster.py
+pyinstaller --noconsole --onefile --uac-admin --name "auto-paster" auto_paster.py
 
 echo.
 echo ========================================

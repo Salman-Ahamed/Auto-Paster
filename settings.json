@@ -1,5 +1,6 @@
 {
   "hotkey": "pause",
   "last_category": "Phone",
-  "auto_detect": true
+  "auto_detect": true,
+  "paste_mode": "type"
 }

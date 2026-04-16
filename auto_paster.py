@@ -9,6 +9,7 @@ import time
 import pyperclip
 import uiautomation as auto
 import sys
+import ctypes
 
 try:
     import keyboard
@@ -27,6 +28,12 @@ SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")
 
 CATEGORIES = ["Phone", "Name", "Email"]
 DEFAULT_HOTKEY = "ctrl+shift+space"
+
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
 def load_data():
@@ -67,10 +74,18 @@ def save_data(all_data):
         json.dump(all_data, f, indent=2)
 
 def load_settings():
+    default = {"hotkey": DEFAULT_HOTKEY, "paste_mode": "paste"}
     if os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE, "r") as f:
-            return json.load(f)
-    return {"hotkey": DEFAULT_HOTKEY}
+        try:
+            with open(SETTINGS_FILE, "r") as f:
+                data = json.load(f)
+                # Ensure defaults for new settings
+                if "paste_mode" not in data:
+                    data["paste_mode"] = "paste"
+                return data
+        except:
+            return default
+    return default
 
 def save_settings(settings):
     with open(SETTINGS_FILE, "w") as f:
@@ -136,8 +151,11 @@ class PhonePasterApp:
         self.auto_detect = tk.BooleanVar(value=self.settings.get("auto_detect", False))
         
         self.hotkey = self.settings.get("hotkey", DEFAULT_HOTKEY)
+        self.paste_mode = tk.StringVar(value=self.settings.get("paste_mode", "paste"))
         self.hotkey_registered = False
         self.paste_lock = threading.Lock()
+        self.is_admin = is_admin()
+        self.last_pasted_idx = None # Tracks last item for Undo
 
         self._build_ui()
         self._refresh_list()
@@ -190,6 +208,14 @@ class PhonePasterApp:
         self.hotkey_badge.pack(side="right")
         self.hotkey_badge.bind("<Button-1>", lambda e: self._change_hotkey())
 
+        # Admin Status Indicator
+        if not self.is_admin:
+            admin_lbl = tk.Label(badge_container, text="⚠ No Admin", font=("Segoe UI", 8, "bold"),
+                                bg=BG, fg=DANGER)
+            admin_lbl.pack(side="right", padx=(0, 10))
+            admin_lbl.bind("<Button-1>", lambda e: messagebox.showwarning("Admin Required", 
+                "Running without Administrator privileges may prevent pasting in emulators and some system apps."))
+
         # Category Pill Selector
         selector_container = tk.Frame(self.root, bg=BG)
         selector_container.pack(fill="x", padx=25, pady=(0, 20))
@@ -211,6 +237,24 @@ class PhonePasterApp:
             btn.pack(side="left")
             self.cat_buttons[cat] = btn
         
+        # Paste Mode Selector (Next to categories)
+        mode_frame = tk.Frame(selector_container, bg="#12121f", padx=4, pady=4)
+        mode_frame.pack(side="right")
+
+        def on_mode_change():
+            self.settings["paste_mode"] = self.paste_mode.get()
+            save_settings(self.settings)
+            self._set_status(f"⚙ Mode: {self.paste_mode.get().title()}")
+
+        for mode_val, mode_label in [("paste", "📋 Paste"), ("type", "⌨ Type")]:
+            rb = tk.Radiobutton(mode_frame, text=mode_label, variable=self.paste_mode, 
+                               value=mode_val, command=on_mode_change,
+                               font=("Segoe UI", 8, "bold"), bg="#12121f", fg=MUTED,
+                               selectcolor="#1c1c2e", activebackground="#12121f",
+                               activeforeground=ACCENT, indicatoron=False, 
+                               borderwidth=0, padx=12, pady=6, cursor="hand2")
+            rb.pack(side="left")
+
         self._update_pill_visuals()
 
         # Stats bar
@@ -324,9 +368,15 @@ class PhonePasterApp:
 
         clear_btn = HoverButton(footer_frame, text="🗑  Clear List", font=FONT_MAIN,
                                bg="#241216", fg=DANGER, relief="flat", cursor="hand2",
-                               hover_bg=DANGER, hover_fg=TEXT,
+                               hover_bg=DANGER, hover_fg=TEXT_COLOR,
                                padx=15, pady=8, command=self._clear_all)
         clear_btn.pack(side="left", padx=(10, 0))
+
+        undo_btn = HoverButton(footer_frame, text="↶  Undo Paste", font=FONT_MAIN,
+                               bg="#1a1a2e", fg=ACCENT, relief="flat", cursor="hand2",
+                               hover_bg="#252545", hover_fg=TEXT_COLOR,
+                               padx=15, pady=8, command=self._undo_paste)
+        undo_btn.pack(side="right")
 
         # Status bar
         self.status_var = tk.StringVar(value="Ready — Press hotkey anywhere to paste next item")
@@ -542,6 +592,26 @@ class PhonePasterApp:
         self._refresh_list()
         self._set_status(f"↺ All {self.current_category.lower()}s reset")
 
+    def _undo_paste(self):
+        if self.last_pasted_idx is None:
+            self._set_status("⚠ Nothing to undo")
+            return
+        
+        idx = self.last_pasted_idx
+        if 0 <= idx < len(self.numbers):
+            item = self.numbers[idx]
+            if item.get("pasted"):
+                item["pasted"] = False
+                save_data(self.all_data)
+                self.last_pasted_idx = None
+                self._refresh_list()
+                self._update_stats()
+                self._set_status(f"↶ Undo: '{item['value'][:15]}...' is now NEXT")
+                return
+        
+        self._set_status("⚠ Could not undo (item moved or deleted)")
+        self.last_pasted_idx = None
+
     def _clear_all(self):
         if messagebox.askyesno("Clear All", f"Delete all {self.current_category.lower()}s?"):
             self.numbers.clear()
@@ -612,54 +682,51 @@ class PhonePasterApp:
 
         number = current_list[idx]["value"]
 
-        # Save original clipboard
+        # ── Focus Safety Check ──────────────────────────────────────────
+        # If the focused window is our app, abort to prevent accidental counts
         try:
-            original_clip = pyperclip.paste()
+            focused = auto.GetFocusedControl()
+            if focused:
+                top_window = focused.GetTopLevelWindow()
+                if top_window and top_window.Name == "📱 Auto-Paster":
+                    self.root.after(0, lambda: self._set_status("⚠ Aborted: Cannot paste inside Auto-Paster"))
+                    return
         except Exception:
-            original_clip = ""
-
-        # Copy number to clipboard
+            pass
+        
+        # Determine Output Mode
+        mode = self.paste_mode.get()
+        
+        # Execute Output Action
+        success = True
         try:
-            pyperclip.copy(number)
-        except Exception as e:
-            self.root.after(0, lambda: self._set_status(f"⚠ Clipboard Error: {e}"))
-            return
-
-        # Reduced wait for physical keys for an "instant" feel
-        if KEYBOARD_AVAILABLE:
-            keys_to_check = ['ctrl', 'shift', 'alt', 'space']
-            for key in keys_to_check:
-                count = 0
-                while keyboard.is_pressed(key) and count < 5: # Max 50ms wait
-                    time.sleep(0.01)
-                    count += 1
-
-        # Minimal buffer for clipboard stability
-        time.sleep(0.05)
-
-        # Simulate Ctrl+V
-        if KEYBOARD_AVAILABLE:
-            try:
-                # Explicitly release these to prevent system-level sticking
+            if mode == "type":
+                time.sleep(0.1)
+                keyboard.write(number, delay=0.01)
+            else:
+                pyperclip.copy(number)
+                time.sleep(0.05)
                 keyboard.release('shift')
                 keyboard.release('alt')
-                
-                # Direct key sequence for paste
                 keyboard.press('ctrl')
                 keyboard.press('v')
                 time.sleep(0.05)
                 keyboard.release('v')
                 keyboard.release('ctrl')
-            except Exception as e:
-                self.root.after(0, lambda: self._set_status(f"⚠ Paste Error: {e}"))
+        except Exception as e:
+            success = False
+            self.root.after(0, lambda err=e: self._set_status(f"⚠ Error: {err}"))
 
-            # Mark as pasted and Sync
+        if success:
+            # ✅ Success: Mark as pasted and update stats
             current_list[idx]["pasted"] = True
+            self.last_pasted_idx = idx
             save_data(self.all_data)
+            
             self.root.after(0, self._refresh_list)
             self.root.after(0, self._update_stats)
             self.root.after(0, lambda: self._set_status(
-                f"✓ Pasted ({target_category}): {number[:15]}..."))
+                f"✓ {'Typed' if mode == 'type' else 'Pasted'} ({target_category}): {number[:15]}..."))
 
     # ── Hotkey ────────────────────────────────────────────────────────────────
     def _register_hotkey(self):
