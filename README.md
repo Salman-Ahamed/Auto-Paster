@@ -2,7 +2,7 @@
 
 **Auto-Paster** is a powerful and lightweight data-pasting automation tool designed to streamline repetitive typing tasks. Whether you're handling massive lists of phone numbers, names, or email addresses, Auto-Paster helps you paste them sequentially with a single global hotkey.
 
-![Auto-Paster Header](https://raw.githubusercontent.com/YourUsername/paster/main/assets/banner.png) *(Note: Add your own banner here)*
+<img width="730" height="1011" alt="Screenshot 2026-04-16 134136" src="https://github.com/user-attachments/assets/178a7d11-7336-43bb-95cb-5f8a13d342e6" />
 
 ## ✨ Key Features
 
