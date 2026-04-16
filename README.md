@@ -46,7 +46,10 @@ pip install keyboard pyperclip uiautomation
 If you want to create a standalone `.exe` version of this tool:
 
 1. Simply double-click the **`build.bat`** file included in the repository.
-2. It will automatically install `PyInstaller` and compile the script into a single executable.
+2. Or run the following command manually in your terminal:
+   ```bash
+   pyinstaller --noconsole --onefile auto_paster.py
+   ```
 3. Find your ready-to-use app in the `dist/` folder.
 
 ## 📂 Project Structure

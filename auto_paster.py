@@ -1,3 +1,5 @@
+# 📱 Auto-Paster - A powerful tool for sequential data pasting.
+# Build Command: pyinstaller --noconsole --onefile auto_paster.py
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 import json
