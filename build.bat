@@ -10,12 +10,12 @@ pip install pyinstaller pyperclip uiautomation keyboard --quiet
 echo.
 echo [2/2] Building executable...
 echo (This may take a minute or two)
-pyinstaller --noconsole --onefile auto_paster.py
+pyinstaller --noconsole --onefile --name "auto-paster" auto_paster.py
 
 echo.
 echo ========================================
 echo   BUILD COMPLETE!
-echo   Location: dist/auto_paster.exe
+echo   Location: dist/auto-paster.exe
 echo ========================================
 echo.
 pause
