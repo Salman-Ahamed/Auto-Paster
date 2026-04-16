@@ -286,8 +286,16 @@ class PhonePasterApp:
                                  command=canvas.yview, style="Modern.Vertical.TScrollbar")
         self.list_frame = tk.Frame(canvas, bg=CARD)
 
-        self.list_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=self.list_frame, anchor="nw", width=550)
+        def _on_canvas_configure(e):
+            # Dynamic width adjustment
+            canvas.itemconfig(canvas_win, width=e.width)
+
+        def _on_frame_configure(e):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        canvas_win = canvas.create_window((0, 0), window=self.list_frame, anchor="nw")
+        canvas.bind("<Configure>", _on_canvas_configure)
+        self.list_frame.bind("<Configure>", _on_frame_configure)
         canvas.configure(yscrollcommand=self.scrollbar.set)
 
         canvas.pack(side="left", fill="both", expand=True)
@@ -350,10 +358,17 @@ class PhonePasterApp:
         PASTED_FG = "#2a7a5a"
 
         if not self.numbers:
-            tk.Label(self.list_frame, text=f"No {self.current_category.lower()}s yet.\nAdd {self.current_category.lower()}s above ☝",
-                     font=("Segoe UI", 11), bg=BG_COLOR, fg=MUTED,
-                     pady=60).pack(fill="x", expand=True)
+            # Statically center the placeholder in the canvas so it doesn't scroll
+            if not hasattr(self, 'placeholder') or not self.placeholder.winfo_exists():
+                self.placeholder = tk.Label(self.canvas, 
+                          text=f"No {self.current_category.lower()}s yet.\nAdd {self.current_category.lower()}s above ☝",
+                          font=("Segoe UI", 11), bg=CARD_COLOR, fg=MUTED,
+                          justify="center")
+            self.placeholder.place(relx=0.5, rely=0.4, anchor="center")
         else:
+            if hasattr(self, 'placeholder') and self.placeholder.winfo_exists():
+                self.placeholder.place_forget()
+            
             # Sort: Unpasted items at top (False < True), preserve original order within groups
             sorted_items = sorted(enumerate(self.numbers), 
                                 key=lambda x: (x[1].get("pasted", False), x[0]))
